@@ -1,0 +1,33 @@
+# STM32CubeIDE / GCC build outputs
+Debug/
+Release/
+
+# Compiled objects and intermediate files
+*.o
+*.d
+*.su
+*.map
+*.lst
+
+# Binary firmware images
+*.elf
+*.bin
+*.hex
+*.srec
+
+# Eclipse / CubeIDE internal and workspace metadata
+.settings/
+.metadata/
+*.launch
+
+# CubeMX temporary & backup files
+*.bak
+*.tmp
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Other editors
+.vscode/
+.idea/
