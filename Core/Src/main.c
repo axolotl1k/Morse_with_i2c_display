@@ -31,7 +31,7 @@
 
 typedef struct
 {
-    const char *code;
+    const char* code;
     char symbol;
 } MorseEntry;
 
@@ -58,6 +58,8 @@ typedef struct
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+
+I2C_HandleTypeDef hi2c2;
 
 /* USER CODE BEGIN PV */
 
@@ -87,9 +89,10 @@ uint8_t morse_overflow;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
 
-static char Morse_Decode(const char *code);
+static char Morse_Decode(const char* code);
 
 /* USER CODE END PFP */
 
@@ -98,29 +101,29 @@ static char Morse_Decode(const char *code);
 
 static const MorseEntry morse_table[] =
 {
-    {".-",   'A'},
+    {".-", 'A'},
     {"-...", 'B'},
     {"-.-.", 'C'},
-    {"-..",  'D'},
-    {".",    'E'},
+    {"-..", 'D'},
+    {".", 'E'},
     {"..-.", 'F'},
-    {"--.",  'G'},
+    {"--.", 'G'},
     {"....", 'H'},
-    {"..",   'I'},
+    {"..", 'I'},
     {".---", 'J'},
-    {"-.-",  'K'},
+    {"-.-", 'K'},
     {".-..", 'L'},
-    {"--",   'M'},
-    {"-.",   'N'},
-    {"---",  'O'},
+    {"--", 'M'},
+    {"-.", 'N'},
+    {"---", 'O'},
     {".--.", 'P'},
     {"--.-", 'Q'},
-    {".-.",  'R'},
-    {"...",  'S'},
-    {"-",    'T'},
-    {"..-",  'U'},
+    {".-.", 'R'},
+    {"...", 'S'},
+    {"-", 'T'},
+    {"..-", 'U'},
     {"...-", 'V'},
-    {".--",  'W'},
+    {".--", 'W'},
     {"-..-", 'X'},
     {"-.--", 'Y'},
     {"--..", 'Z'},
@@ -171,151 +174,145 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
 
-	last_raw_state = HAL_GPIO_ReadPin(
-	MORSE_BTN_GPIO_Port,
-	MORSE_BTN_Pin);
+    last_raw_state = HAL_GPIO_ReadPin(
+        MORSE_BTN_GPIO_Port,
+        MORSE_BTN_Pin);
 
-	stable_state = last_raw_state;
-	last_change_time = HAL_GetTick();
+    stable_state = last_raw_state;
+    last_change_time = HAL_GetTick();
 
-	morse_length = 0;
-	morse_buffer[0] = '\0';
+    morse_length = 0;
+    morse_buffer[0] = '\0';
 
-	symbol_pending = 0;
-	word_space_pending = 0;
+    symbol_pending = 0;
+    word_space_pending = 0;
 
-	release_time = HAL_GetTick();
+    release_time = HAL_GetTick();
 
-	text_length = 0;
-	text_buffer[0] = '\0';
+    text_length = 0;
+    text_buffer[0] = '\0';
 
-	morse_overflow = 0;
+    morse_overflow = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-	while (1)
-	{
-		uint32_t now = HAL_GetTick();
+    while (1)
+    {
+        uint32_t now = HAL_GetTick();
 
+        raw_state = HAL_GPIO_ReadPin(
+            MORSE_BTN_GPIO_Port,
+            MORSE_BTN_Pin);
 
+        if (raw_state != last_raw_state)
+        {
+            last_raw_state = raw_state;
+            last_change_time = now;
+        }
 
-		raw_state = HAL_GPIO_ReadPin(
-		MORSE_BTN_GPIO_Port,
-		MORSE_BTN_Pin);
+        if ((now - last_change_time >= DEBOUNCE_MS)
+            && (raw_state != stable_state))
+        {
+            stable_state = raw_state;
 
-		if (raw_state != last_raw_state)
-		{
-			last_raw_state = raw_state;
-			last_change_time = now;
-		}
+            if (stable_state == GPIO_PIN_RESET)
+            {
+                press_start = now;
 
-		if ((now - last_change_time >= DEBOUNCE_MS)
-				&& (raw_state != stable_state))
-		{
-			stable_state = raw_state;
+                word_space_pending = 0;
 
-			if (stable_state == GPIO_PIN_RESET)
-			{
-				press_start = now;
+                HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
+            }
+            else
+            {
+                HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
 
-				word_space_pending = 0;
+                press_duration = now - press_start;
 
-				HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
+                if (press_duration >= DEBOUNCE_MS)
+                {
+                    if (morse_length < MORSE_BUFFER_SIZE - 1U)
+                    {
+                        if (press_duration < DOT_DASH_LIMIT_MS)
+                        {
+                            morse_buffer[morse_length] = '.';
+                        }
+                        else
+                        {
+                            morse_buffer[morse_length] = '-';
+                        }
 
-			}
-			else
-			{
-				HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
+                        morse_length++;
+                        morse_buffer[morse_length] = '\0';
+                    }
+                    else
+                    {
+                        morse_overflow = 1;
+                    }
 
-				press_duration = now - press_start;
+                    release_time = now;
+                    symbol_pending = 1;
+                    word_space_pending = 0;
+                }
+            }
+        }
 
-				if (press_duration >= DEBOUNCE_MS)
-				{
+        if (stable_state == GPIO_PIN_SET)
+        {
+            uint32_t silence_duration = now - release_time;
 
-					if (morse_length < MORSE_BUFFER_SIZE - 1U)
-					{
-					    if (press_duration < DOT_DASH_LIMIT_MS)
-					    {
-					        morse_buffer[morse_length] = '.';
-					    }
-					    else
-					    {
-					        morse_buffer[morse_length] = '-';
-					    }
+            if (symbol_pending && silence_duration >= LETTER_PAUSE_MS)
+            {
+                char decoded_symbol;
 
-					    morse_length++;
-					    morse_buffer[morse_length] = '\0';
+                if (morse_overflow)
+                {
+                    decoded_symbol = '?';
+                }
+                else
+                {
+                    decoded_symbol = Morse_Decode(morse_buffer);
+                }
 
-					}
-					else
-					{
-					    morse_overflow = 1;
-					}
+                if (text_length < TEXT_BUFFER_SIZE - 1U)
+                {
+                    text_buffer[text_length] = decoded_symbol;
+                    text_length++;
+                    text_buffer[text_length] = '\0';
+                }
 
-					release_time = now;
-					symbol_pending = 1;
-					word_space_pending = 0;
-				}
-			}
-		}
+                morse_length = 0;
+                morse_buffer[0] = '\0';
 
-		if (stable_state == GPIO_PIN_SET)
-		{
-			uint32_t silence_duration = now - release_time;
+                morse_overflow = 0;
+                symbol_pending = 0;
+                word_space_pending = 1;
+            }
 
-			if (symbol_pending && silence_duration >= LETTER_PAUSE_MS)
-			{
-				char decoded_symbol;
+            if (word_space_pending && silence_duration >= WORD_PAUSE_MS)
+            {
+                if (text_length > 0 &&
+                    text_length < TEXT_BUFFER_SIZE - 1U &&
+                    text_buffer[text_length - 1U] != ' ')
+                {
+                    text_buffer[text_length] = ' ';
+                    text_length++;
 
-				if (morse_overflow)
-				{
-				    decoded_symbol = '?';
-				}
-				else
-				{
-				    decoded_symbol = Morse_Decode(morse_buffer);
-
-				}
-
-				if (text_length < TEXT_BUFFER_SIZE - 1U)
-				{
-				    text_buffer[text_length] = decoded_symbol;
-				    text_length++;
-				    text_buffer[text_length] = '\0';
-
-				}
-
-				morse_length = 0;
-				morse_buffer[0] = '\0';
-
-				morse_overflow = 0;
-				symbol_pending = 0;
-				word_space_pending = 1;
-			}
-
-			if (word_space_pending && silence_duration >= WORD_PAUSE_MS)
-			{
-				if (text_length > 0 &&
-				    text_length < TEXT_BUFFER_SIZE - 1U &&
-				    text_buffer[text_length - 1U] != ' ')
-				{
-				    text_buffer[text_length] = ' ';
-				    text_length++;
-
-				    text_buffer[text_length] = '\0';
-				}
-				word_space_pending = 0;
-			}
-		}
+                    text_buffer[text_length] = '\0';
+                }
+                word_space_pending = 0;
+            }
+        }
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	}
+    }
   /* USER CODE END 3 */
 }
 
@@ -361,6 +358,54 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x00303D5B;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -373,6 +418,7 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -399,10 +445,10 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-static char Morse_Decode(const char *code)
+static char Morse_Decode(const char* code)
 {
     uint32_t table_size =
-            sizeof(morse_table) / sizeof(morse_table[0]);
+        sizeof(morse_table) / sizeof(morse_table[0]);
 
     for (uint32_t i = 0; i < table_size; i++)
     {
@@ -453,11 +499,11 @@ void MPU_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-	/* User can add his own implementation to report the HAL error return state */
-	__disable_irq();
-	while (1)
-	{
-	}
+    /* User can add his own implementation to report the HAL error return state */
+    __disable_irq();
+    while (1)
+    {
+    }
   /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
@@ -471,8 +517,8 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+    /* User can add his own implementation to report the file name and line number,
+       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

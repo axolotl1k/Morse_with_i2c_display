@@ -1,33 +1,25 @@
-# STM32CubeIDE / GCC build outputs
-Debug/
-Release/
+# CLion internal metadata
+.idea/
 
-# Compiled objects and intermediate files
-*.o
-*.d
-*.su
-*.map
-*.lst
+# CMake build outputs
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
 
-# Binary firmware images
+# Toolchain build artifacts
 *.elf
 *.bin
 *.hex
-*.srec
+*.map
+*.o
+*.d
+*.su
 
-# Eclipse / CubeIDE internal and workspace metadata
+# Old Eclipse artifacts (про всяк випадок)
+Debug/
+Release/
 .settings/
-.metadata/
-*.launch
-
-# CubeMX temporary & backup files
-*.bak
-*.tmp
-
-# OS specific files
-.DS_Store
-Thumbs.db
-
-# Other editors
-.vscode/
-.idea/
+.project
+.cproject
+.mxproject
