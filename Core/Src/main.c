@@ -48,7 +48,7 @@ typedef struct
 #define WORD_PAUSE_MS          (7U * MORSE_UNIT_MS)
 
 #define MORSE_BUFFER_SIZE 6U
-#define TEXT_BUFFER_SIZE  32U
+#define TEXT_BUFFER_SIZE  33U
 
 #define LCD_ADDR  0x4E           // адреса дисплея
 
@@ -90,6 +90,8 @@ uint8_t text_length;
 
 uint8_t morse_overflow;
 
+uint8_t reset_state = 1;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -122,14 +124,16 @@ void LCD_SendCommand(uint8_t cmd)
 {
     LCD_Write_Nibble(cmd & 0xF0, 0);
     LCD_Write_Nibble((cmd << 4) & 0xF0, 0);
-    HAL_Delay(2);
+    if (cmd == 0x01 || cmd == 0x02)
+    {
+        HAL_Delay(2);
+    }
 }
 
 void LCD_SendData(uint8_t data)
 {
     LCD_Write_Nibble(data & 0xF0, LCD_PIN_RS);
     LCD_Write_Nibble((data << 4) & 0xF0, LCD_PIN_RS);
-    HAL_Delay(1);
 }
 
 void LCD_Init(void)
@@ -143,25 +147,24 @@ void LCD_Init(void)
     LCD_Write_Nibble(0x30, 0);
     HAL_Delay(1);
     LCD_Write_Nibble(0x30, 0);
-    HAL_Delay(10);
+    HAL_Delay(1);
 
     // Перемикаємо шину дисплея на 4-бітний інтерфейс
     LCD_Write_Nibble(0x20, 0);
-    HAL_Delay(10);
+    HAL_Delay(1);
 
     // 3. Тепер дисплей сприймає звичайні команди через LCD_SendCommand
     LCD_SendCommand(0x28); // 4-бітний режим, 2 рядки, шрифт 5x8
     LCD_SendCommand(0x0C); // Увімкнути дисплей, курсор сховати (Display ON, Cursor OFF)
     LCD_SendCommand(0x01); // Очистити весь екран (Clear display)
-    HAL_Delay(2);
     LCD_SendCommand(0x06); // Режим автоінкременту курсора (курсор зсувається вправо)
 }
 
-void LCD_Print(const char *str)
+void LCD_Print(const char* str)
 {
     while (*str)
     {
-        LCD_SendData((uint8_t)(*str++));
+        LCD_SendData((uint8_t) *str++);
     }
 }
 
@@ -283,8 +286,8 @@ int main(void)
             last_change_time = now;
         }
 
-        if ((now - last_change_time >= DEBOUNCE_MS)
-            && (raw_state != stable_state))
+        if (now - last_change_time >= DEBOUNCE_MS
+            && raw_state != stable_state)
         {
             stable_state = raw_state;
 
@@ -347,11 +350,26 @@ int main(void)
                     decoded_symbol = Morse_Decode(morse_buffer);
                 }
 
+                if (reset_state || text_length >= 32U)
+                {
+                    reset_state = 0;
+                    text_length = 0;
+                    text_buffer[0] = '\0';
+                    LCD_SendCommand(0x01);
+                }
+
                 if (text_length < TEXT_BUFFER_SIZE - 1U)
                 {
                     text_buffer[text_length] = decoded_symbol;
                     text_length++;
                     text_buffer[text_length] = '\0';
+
+                    LCD_SendData((uint8_t)decoded_symbol);
+
+                    if (text_length == 16U)
+                    {
+                        LCD_SendCommand(0x80 | 0x40);
+                    }
                 }
 
                 morse_length = 0;
@@ -370,8 +388,14 @@ int main(void)
                 {
                     text_buffer[text_length] = ' ';
                     text_length++;
-
                     text_buffer[text_length] = '\0';
+
+                    LCD_SendData(' ');
+
+                    if (text_length == 16U)
+                    {
+                        LCD_SendCommand(0x80 | 0x40);
+                    }
                 }
                 word_space_pending = 0;
             }
